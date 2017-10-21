@@ -88,7 +88,7 @@ class ShoppPurchase extends ShoppDatabaseObject {
 		$price = ShoppDatabaseObject::tablename(ShoppPrice::$table);
 
 		$this->purchased = sDB::query(
-			"SELECT pd.*,pr.inventory FROM $table AS pd LEFT JOIN $price AS pr ON pr.id=pd.price WHERE pd.purchase=$this->id",
+			"SELECT pd.*,pr.inventory FROM $table AS pd LEFT JOIN $price AS pr ON pr.id=pd.price WHERE pd.purchase=$this->id ORDER BY pd.id ASC",
 			'array',
 			array($this, 'purchases')
 		);
@@ -629,9 +629,11 @@ class ShoppPurchase extends ShoppDatabaseObject {
 	 * @param array $ignores A list of properties to ignore
 	 * @return void
 	 **/
-	public function copydata ( $Object, $prefix = '', array $ignores = array() ) {
-
-		$ignores = array_merge(array('_datatypes', '_table', '_key', '_lists', 'id', 'created', 'modified'), $ignores);
+	public function copydata ( $Object, $prefix = '', $ignores = false ) {
+		if ( ! is_array($ignores) || $ignores === false ) 
+			$ignores = array('_datatypes', '_table', '_key', '_lists', 'id', 'created', 'modified');
+		else
+			$ignores = array_merge(array('_datatypes', '_table', '_key', '_lists', 'id', 'created', 'modified'), $ignores);
 
 		foreach( get_object_vars($Object) as $property => $value ) {
 			$property = $prefix . $property;
@@ -668,6 +670,7 @@ class ShoppPurchase extends ShoppDatabaseObject {
 			$prefix.'shipcountry'	=> Shopp::__('Shipping Country'),
 			$prefix.'shippostcode'	=> Shopp::__('Shipping Postal Code'),
 			$prefix.'shipmethod'	=> Shopp::__('Shipping Method'),
+			$prefix.'shipoption'	=> Shopp::__('Shipping Option'),
 			'discounts.value'	    => Shopp::__('Discounts Applied'),
 			$prefix.'subtotal'	    => Shopp::__('Order Subtotal'),
 			$prefix.'discount'	    => Shopp::__('Order Discount'),
@@ -678,6 +681,7 @@ class ShoppPurchase extends ShoppDatabaseObject {
 			$prefix.'txnid'	        => Shopp::__('Transaction ID'),
 			$prefix.'txnstatus'	    => Shopp::__('Transaction Status'),
 			$prefix.'gateway'	    => Shopp::__('Payment Gateway'),
+			$prefix.'paymethod'	    => Shopp::__('Payment Method'),
 			$prefix.'status'	    => Shopp::__('Order Status'),
 			$prefix.'data'	        => Shopp::__('Order Data'),
 			$prefix.'created'	    => Shopp::__('Order Date'),
@@ -972,7 +976,7 @@ class PurchasesTabExport extends PurchasesExport {
 
 	public function escape ($value) {
 		$value = str_replace(array("\n", "\r"), ' ', $value); // No newlines
-		if ( false !== strpos($value, "\t") && false === strpos($value,'"') )	// Quote tabs
+		if ( false !== strpos($value, "\t") && false === strpos($value, '"') )	// Quote tabs
 			$value = '"' . $value . '"';
 		return $value;
 	}
@@ -989,12 +993,12 @@ class PurchasesCSVExport extends PurchasesExport {
 	}
 
 	public function export ($value) {
-		echo ($this->recordstart?"":",").$value;
+		echo ( $this->recordstart ? "" : "," ) . $value;
 		$this->recordstart = false;
 	}
 
 	public function escape ($value) {
-		$value = str_replace('"','""',$value);
+		$value = str_replace('"', '""', $value);
 		if ( preg_match('/^\s|[,"\n\r]|\s$/',$value) )
 			$value = '"'.$value.'"';
 		return $value;

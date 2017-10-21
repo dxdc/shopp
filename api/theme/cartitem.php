@@ -84,10 +84,10 @@ class ShoppCartItemThemeAPI implements ShoppAPI {
 	 *
 	 * @return ShoppCartItem|bool The working ShoppCartItem context
 	 **/
-	public static function _setobject ( $Object, $object ) {
+	public static function _setobject ( $Object, $context ) {
 		if ( is_object($Object) && is_a($Object, 'Item') ) return $Object;
 
-		if ( strtolower($object) != 'cartitem' ) return $Object; // not mine, do nothing
+		if ( strtolower($context) != 'cartitem' ) return $Object; // not mine, do nothing
 		else {
 			$Cart = ShoppOrder()->Cart;
 			$Item = false;
@@ -411,7 +411,14 @@ class ShoppCartItemThemeAPI implements ShoppAPI {
 	 * @return string The tax rate percentage (10.1%)
 	 **/
 	public static function taxrate ( $result, $options, $O ) {
+		// remove unused rates (EU)
+		if ( count($O->taxes) > 1 ) {
+			$taxrates = array();
+			foreach ( $O->taxes as $label => $rate )
+				if ( ! is_null($rate->amount) ) $taxrates[$label] = $rate;
 
+			$O->taxes = $taxrates;
+		}
 		if ( count($O->taxes) == 1 ) {
 			$Tax = reset($O->taxes);
 			return percentage( $Tax->rate * 100, array( 'precision' => 1 ) );
@@ -720,10 +727,11 @@ class ShoppCartItemThemeAPI implements ShoppAPI {
 		$options = array_merge($defaults, $options);
 		extract($options);
 
-		$classes  = ! empty($class) ? ' class="' . esc_attr($class) . '"' : '';
-		$excludes = explode(',', $exclude);
-		$prices   = Shopp::str_true($prices);
-		$taxes    = Shopp::str_true($taxes);
+		$classes      = ! empty($class) ? ' class="' . esc_attr($class) . '"' : '';
+		$excludes     = explode(',', $exclude);
+		$prices       = Shopp::str_true($prices);
+		$taxoption    = Shopp::str_true($taxes);
+		$inclusivetax = self::_inclusive_taxes($O);
 
 		// Get the menu labels list and addon options to menus map
 		list($menus, $menumap) = self::_addon_menus();
@@ -735,11 +743,23 @@ class ShoppCartItemThemeAPI implements ShoppAPI {
 			$menu = isset( $menumap[ $addon->options ]) ? $menus[ $menumap[ $addon->options ] ] . $separator : false;
 
 			$price = ( Shopp::str_true($addon->sale) ? $addon->promoprice : $addon->price );
-			if ( $taxes && $O->taxrate > 0 )
+
+			if ( isset($O->taxprice) )
+				$adjustment = $O->taxprice/$O->unitprice;
+			else
+				$adjustment = $O->taxrate;
+
+			if ( $adjustment < 0 )
+				$adjustment = 1 + $adjustment;
+
+			if ( 0 != $adjustment )
+				$price = $price / $adjustment;
+
+			if ( isset($taxoption) && ( $inclusivetax ^ $taxoption ) )
 				$price = $price + ( $price * $O->taxrate );
 
-			if ( $prices ) $pricing = " (" . ( $addon->price < 0 ?'-' : '+' ) . money($price) . ')';
-			$result .= '<li>' . $menu . $addon->label . $pricing . '</li>';
+			if ( $prices ) $pricing = " (" . ( $addon->price < 0 ? '-' : '+' ) . money($price) . ')';
+				$result .= '<li>' . $menu . $addon->label . $pricing . '</li>';
 		}
 		$result .= '</ul>' . $after;
 		return $result;

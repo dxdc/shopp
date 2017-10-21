@@ -37,6 +37,7 @@ class ShoppTax {
 	private $Item = false;		// The ShoppTaxableItem to calculate taxes for
 	private $Customer = false;	// The current ShoppCustomer to calculate taxes for
 
+
 	/**
 	 * Converts a provided item to a ShoppTaxableItem
 	 *
@@ -61,22 +62,23 @@ class ShoppTax {
 	public function settings () {
 		if ( ! shopp_setting_enabled('taxes') ) return false;
 
-		$taxrates = shopp_setting('taxrates');
-
+		$eu        = false;    // Track EU tax key
+		$override  =  array(); // Track taxrate overrides
+		$taxrates  = shopp_setting('taxrates');
 		$fallbacks = array();
-		$settings = array();
+		$settings  = array();
 		foreach ( (array) $taxrates as $setting ) {
 
 			$defaults = array(
-				'rate' => 0,
-				'country' => '',
-				'zone' => '',
+				'rate'      => 0,
+				'country'   => '',
+				'zone'      => '',
 				'haslocals' => false,
-				'logic' => 'any',
-				'rules' => array(),
+				'logic'     => 'any',
+				'rules'     => array(),
 				'localrate' => 0,
-				'compound' => false,
-				'label' => Shopp::__('Tax')
+				'compound'  => false,
+				'label'     => Shopp::__('Tax')
 
 			);
 			$setting = array_merge($defaults, $setting);
@@ -99,10 +101,15 @@ class ShoppTax {
 				$setting['localrate'] = $setting['locals'][ $this->address['locale'] ];
 
 			$settings[ $key ] = $setting;
+
+			if ( self::EUVAT == $country ) $eu = $key;
+			if ( in_array($country, Lookup::country_euvat()) ) $override[ $key ] = $country;
 		}
 
 		if ( empty($settings) && ! empty($fallbacks) )
 			$settings = $fallbacks;
+
+		if ( false !== $eu && ! empty($override) ) unset($settings[ $eu ]) ;
 
 		$settings = apply_filters('shopp_cart_taxrate_settings', $settings); // @deprecated Use shopp_tax_rate_settings instead
 		return apply_filters('shopp_tax_rate_settings', $settings);
@@ -297,19 +304,27 @@ class ShoppTax {
 		return (array)$baserates;
 	}
 
-	public static function adjustment ( $rates ) {
+	public static function adjustment ( $rates, $Item = null ) {
+		$adjustment = array();
+		$adjustment['baserate'] = $adjustment['appliedrate'] = 1;
 
-		if ( ! shopp_setting_enabled('tax_inclusive') ) return 1;
+		// remove unused rates (EU)
+		if ( count($rates) > 1 ) {
+			$taxrates = array();
+			foreach ( $rates as $label => $rate )
+				if ( ! is_null($rate->amount) ) $taxrates[ $label ] = $rate;
 
-		$baserates = ShoppTax::baserates();
+			$rates = $taxrates;
+		}
+
+		$baserates = ShoppTax::baserates($Item);
 		$baserate = reset($baserates);
 		$appliedrate = reset($rates);
 
-		$baserate = isset($baserate->rate) ? $baserate->rate : 0;
-		$appliedrate = isset($appliedrate->rate) ? $appliedrate->rate : 0;
+		$adjustment['baserate']    = isset($baserate->rate) ? $baserate->rate : 0;
+		$adjustment['appliedrate'] = isset($appliedrate->rate) ? $appliedrate->rate : 0;
 
-		return 1 + ($baserate - $appliedrate);
-
+		return $adjustment;
 	}
 
 	/**
@@ -336,13 +351,15 @@ class ShoppTax {
 	 *
 	 * @param array $rates A list of ShoppItemTax objects
 	 * @param float $taxable The amount to calculate taxes on
+	 * @param Object $Item A taxable item object
 	 * @return float The total tax amount
 	 **/
-	public static function calculate ( array &$rates, $taxable ) {
+	public static function calculate ( array &$rates, $taxable, $Item = null ) {
 
 		$compound = 0;
 		$total = 0;
 		$inclusive = shopp_setting_enabled('tax_inclusive');
+	
 		foreach ( $rates as $label => $taxrate ) {
 
 			if ( is_null($taxrate->total) ) continue; 		// Skip taxes flagged to be removed from the item
@@ -350,7 +367,12 @@ class ShoppTax {
 			$taxrate->amount = 0; // Reset the captured tax amount @see Issue #2430
 
 			// Calculate tax amount
-			if ( $inclusive ) $tax = $taxable - ( $taxable / (1 + $taxrate->rate) );
+			if ( $inclusive ) {
+				$baserates = ShoppTax::baserates($Item);
+				$baserate = reset($baserates);
+				$baserate = isset($baserate->rate) ? $baserate->rate : 0;
+				$tax = ( $taxable / (1 + $baserate) ) * $taxrate->rate;
+			}
 			else $tax = $taxable * $taxrate->rate;
 
 			if ( $taxrate->compound ) {

@@ -91,7 +91,7 @@ class ShoppAdmin extends ShoppFlowController {
 		add_action('wp_setup_nav_menu_item',array($this, 'navmenu_setup'));
 
 		add_filter('wp_dropdown_pages', array($this, 'storefront_pages'));
-		add_filter('pre_update_option_page_on_front', array($this, 'frontpage'));
+		add_filter('pre_update_option_page_on_front', array($this, 'frontpage'), 10, 2);
 
 		$this->pages();
 
@@ -1103,7 +1103,7 @@ class ShoppAdminListTable extends WP_List_Table {
 
 		if ( !empty( $columns ) ) {
 			$this->_columns = $columns;
-			add_filter( 'manage_' . $screen->id . '_columns', array( &$this, 'get_columns' ), 0 );
+			add_filter( 'manage_' . $screen->id . '_columns', array( &$this, 'get_columns' ), 1 );
 		}
 
 	}
@@ -1114,7 +1114,7 @@ class ShoppAdminListTable extends WP_List_Table {
 		$screen = get_current_screen();
 		$primary = method_exists($this, "get_primary_column_name") ? $this->get_primary_column_name() : null;
 
-		$_sortable = apply_filters( "manage_{$screen->id}_sortable_columns", $this->get_sortable_columns() );
+		$_sortable = apply_filters( "manage_{$screen->id}_sortable_columns", $this->get_sortable_columns(), 1 );
 
 		$sortable = array();
 		foreach ( $_sortable as $id => $data ) {

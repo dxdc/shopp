@@ -246,9 +246,10 @@ class sDB extends SingletonFramework {
 	 * @since 1.0
 	 *
 	 * @param string|array|object $data Data to be escaped
+	 * @param boolean $unescape Whether or not to unescape() before escape()
 	 * @return string Database-safe data
 	 **/
-	public static function escape ( $data ) {
+	public static function escape ( $data, $unescape = true ) {
 		// Prevent double escaping by stripping any existing escapes out
 		if ( is_array($data) ) array_map(array(__CLASS__, 'escape'), $data);
 		elseif ( is_object($data) ) {
@@ -256,7 +257,9 @@ class sDB extends SingletonFramework {
 				$data->$p = self::escape($v);
 		} else {
 			$db = sDB::get();
-			$data = self::unescape($data); // Prevent double-escapes
+			if ( $unescape === true )
+				$data = self::unescape($data); // Prevent double-escapes
+
 			$data = $db->api->escape($data);
 		}
 		return $data;
@@ -437,7 +440,7 @@ class sDB extends SingletonFramework {
 		if ( isset($rows->found) ) $db->found = (int) $rows->found;
 
 		// Free the results immediately to save memory
-		// JM Added check for empty result to prevent warning 'Could not fetch mysqli_result'
+		// Added check for empty result to prevent warning 'Could not fetch mysqli_result'
 		if ( isset($db->found) && $db->found > 0 ) $db->api->free();
 
 		// Handle result format post processing
@@ -977,7 +980,7 @@ abstract class ShoppDatabaseObject implements Iterator {
 		}
 
 		if ( $Settings->available() ) {
-
+			if ( empty($Tables) ) $Tables = array();
 			$Tables[ $this->_table ] = new StdClass();
 			$Tables[ $this->_table ]->_datatypes =& $this->_datatypes;
 			$Tables[ $this->_table ]->_lists =& $this->_lists;
@@ -1321,8 +1324,9 @@ abstract class ShoppDatabaseObject implements Iterator {
 	 * @param array $ignores (optional) List of property names to ignore copying from
 	 * @return void
 	 **/
-	public function copydata ( $data, $prefix = '', array $ignores = array('_datatypes', '_table', '_key', '_lists', '_map', 'id', 'created', 'modified') ) {
-		if ( ! is_array($ignores) ) $ignores = array();
+	public function copydata ( $data, $prefix = '', $ignores = false ) {
+		if ( ! is_array($ignores) || $ignores === false ) $ignores = array('_datatypes', '_table', '_key', '_lists', '_map', 'id', 'created', 'modified');
+
 		$properties = is_object($data) ? get_object_vars($data) : $data;
 		foreach ( (array)$properties as $property => $value ) {
 			$property = $prefix . $property;
@@ -1490,7 +1494,7 @@ class WPDatabaseObject extends ShoppDatabaseObject {
 	 **/
 	function save () {
 		parent::save();
-		do_action('save_post',$this->id,get_post($this->id));
+		do_action('save_post', $this->id, get_post($this->id), $update = true);
 	}
 
 }

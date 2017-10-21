@@ -114,7 +114,7 @@ class ShoppProduct extends WPShoppObject {
 	 **/
 	public function savepost () {
 		if ( empty($this->id) ) return;
-		do_action('save_post', $this->id, get_post($this->id));
+		do_action('save_post', $this->id, get_post($this->id), $update = true);
 		if ( function_exists('clean_post_cache') )
 			clean_post_cache($this->id);
 	}
@@ -321,7 +321,7 @@ class ShoppProduct extends WPShoppObject {
 		if ( empty($ids) ) return;
 		$purchase  = ShoppDatabaseObject::tablename(ShoppPurchase::$table);
 		$purchased = ShoppDatabaseObject::tablename(Purchased::$table);
-		$query = "SELECT p.product as id, sum(p.quantity) AS sold,sum(p.total) AS grossed FROM $purchased as p INNER JOIN $purchase AS o ON p.purchase=o.id WHERE p.product IN ($ids) AND o.txnstatus IN ('authorized', 'captured') GROUP BY p.product";
+		$query     = "SELECT p.product as id, sum(p.quantity) AS sold,sum(p.total) AS grossed FROM $purchased as p INNER JOIN $purchase AS o ON p.purchase=o.id WHERE p.product IN ($ids) AND o.txnstatus IN ('authed','captured') GROUP BY p.product";
 		sDB::query($query, 'array', array($this, 'sold'));
 	}
 
@@ -588,6 +588,8 @@ class ShoppProduct extends WPShoppObject {
 
 		// Build secondary lookup table using the price id as the key
 		$target->priceid[ $price->id ] = $price;
+		if( isset($this->products) && !empty($this->products) )
+			$this->priceid[$price->id] = $price;
 
 		// Set promoprice before data aggregation
 		if ( Shopp::str_true($price->sale) ) $price->promoprice = $price->saleprice;
@@ -1288,7 +1290,7 @@ class ShoppProduct extends WPShoppObject {
 					do_action('wp_trash_post', $id);
 					break;
 				default:
-					do_action('save_post', $id, $Post);
+					do_action('save_post', $id, $Post, $update = true);
 					break;
 			}
 			if ( function_exists('clean_post_cache') )

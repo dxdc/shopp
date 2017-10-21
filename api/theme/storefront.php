@@ -108,10 +108,10 @@ class ShoppStorefrontThemeAPI implements ShoppAPI {
 	 * @param string          $context The context being worked on by the Theme API
 	 * @return ShoppStorefront The active object context
 	 **/
-	public static function _setobject ( $Object, $object ) {
+	public static function _setobject ( $Object, $context ) {
 		if ( is_object($Object) && is_a($Object, 'ShoppCatalog') ) return $Object;
 
-		switch ( strtolower($object) ) {
+		switch ( strtolower($context) ) {
 			case 'storefront':
 			case 'catalog':
 				return ShoppCatalog();
@@ -1657,7 +1657,7 @@ class ShoppStorefrontThemeAPI implements ShoppAPI {
 	public static function account_menuitem ( $result, $options, $O ) {
 		$Storefront = ShoppStorefront();
 		$page = current($Storefront->menus);
-		if ( array_key_exists('url', $options) ) return add_query_arg($page->request, '', Shopp::url(false, 'account'));
+		if ( array_key_exists('url', $options) ) return add_query_arg($page->request, '', Shopp::url(false, 'account', is_ssl()));
 		if ( array_key_exists('action', $options) ) return $page->request;
 		if ( array_key_exists('classes', $options) ) {
 			$classes = array($page->request);

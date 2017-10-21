@@ -506,7 +506,8 @@ class ShoppCart extends ListFramework {
 		// remove original product/variant
 		$this->rmvitem($item);
 		// add new product/variant
-		$this->additem($quantity, new ShoppProduct($product), $pricing, $category, $data, $addons);
+		$product = new ShoppProduct($product);
+		$this->additem($quantity, $product, $pricing, $category, $data, $addons);
 
 		return true;
 	}
@@ -632,8 +633,11 @@ class ShoppCart extends ListFramework {
 
 		$Totals->register( new OrderAmountShipping( array('id' => 'cart', 'amount' => $Shipping->calculate() ) ) );
 
-		if ( apply_filters( 'shopp_tax_shipping', shopp_setting_enabled('tax_shipping') ) )
+		if ( apply_filters( 'shopp_tax_shipping', shopp_setting_enabled('tax_shipping') ) ) {
 			$Totals->register( new OrderAmountShippingTax( $Totals->total('shipping') ) );
+		} else {			
+			$Totals->takeoff( OrderAmountShippingTax::$register, 'shipping' ); // if not applicable, make sure we scrub
+		}
 
 		// Calculate discounts
 		$Totals->register( new OrderAmountDiscount( array('id' => 'cart', 'amount' => $Discounts->amount() ) ) );

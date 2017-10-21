@@ -84,8 +84,9 @@ class ShoppProductThemeAPI implements ShoppAPI {
 		'onsale'        => 'on_sale',
 		'outofstock'    => 'out_of_stock',
 		'price'         => 'price',
-		'saleprice'     => 'saleprice',
+		'processing'    => 'processing',
 		'relevance'     => 'relevance',
+		'saleprice'     => 'saleprice',
 		'savings'       => 'savings',
 		'schema'        => 'schema',
 		'slug'          => 'slug',
@@ -149,10 +150,10 @@ class ShoppProductThemeAPI implements ShoppAPI {
 	 * @param string       $context The context being worked on by the Theme API
 	 * @return ShoppProduct The active object context
 	 **/
-	public static function _setobject ($Object, $object) {
+	public static function _setobject ($Object, $context) {
 		if ( is_object($Object) && is_a($Object, 'ShoppProduct') ) return $Object;
 
-		if ( 'product' != strtolower($object) ) return $Object; // not mine, do nothing
+		if ( 'product' != strtolower($context) ) return $Object; // not mine, do nothing
 		else {
 			return ShoppProduct();
 		}
@@ -299,7 +300,7 @@ class ShoppProductThemeAPI implements ShoppAPI {
 			}
 		}
 
-		if ( shopp_setting_enabled('inventory') && $O->outofstock ) return false; // Completely out of stock, hide menus
+		if ( ! self::availability($result, $options, $O) ) return false; // Completely out of stock, hide menus
 		if ( ! isset($O->options['a']) ) return false; // There are no addons, don't render menus
 
 		$defaults = array(
@@ -378,7 +379,8 @@ class ShoppProductThemeAPI implements ShoppAPI {
 				$menuid = $idprefix . $menu['id'];
 				if ( Shopp::str_true($label) ) $markup[] = '<label for="' . esc_attr($menuid) . '">' . esc_html($menu['name']) . '</label> ';
 
-				$category_class = shopp('collection.get-slug');
+				$category_slug = array_column($O->categories, 'slug');
+				$category_class = implode(' ', $category_slug);
 				$classes = array($class, $category_class, 'addons');
 
 				$markup[] = '<select name="products[' . $O->id . '][addons][]" class="' . trim(join(' ', $classes)). '" id="' . esc_attr($menuid) . '" title="' . esc_attr($menu['name']) . '">';
@@ -457,7 +459,7 @@ class ShoppProductThemeAPI implements ShoppAPI {
 		if ( ! empty($class) ) $classes = explode(' ', $class);
 
 		$string = '';
-		if ( shopp_setting_enabled('inventory') && $O->outofstock )
+		if ( ! self::availability($result, $options, $O) )
 			return apply_filters('shopp_product_outofstock_text', '<span class="outofstock">' . esc_html(shopp_setting('outofstock_text')) . '</span>');
 
 		if ( $redirect )
@@ -509,7 +511,7 @@ class ShoppProductThemeAPI implements ShoppAPI {
 	 * @return bool True if available, false otherwise
 	 **/
 	public static function availability ( $result, $options, $O ) {
-		return ! ( shopp_setting_enabled('inventory') && $O->outofstock );
+		return ! ( shopp_setting_enabled('inventory') && $O->outofstock && ! shopp_setting_enabled('backorders') );
 	}
 
 	/**
@@ -1154,7 +1156,7 @@ class ShoppProductThemeAPI implements ShoppAPI {
 	public static function in_cart ( $result, $options, $O ) {
 		$Cart = ShoppOrder()->Cart;
 
-		if ( ! isset($Cart->count) || $Cart->count == 0 ) return false; // Cart is empty
+		if ( $Cart->count() == 0 ) return false; // Cart is empty
 
 		foreach ( $Cart as $Item )
 			if ( $Item->product == $O->id ) return true;
@@ -1335,26 +1337,31 @@ class ShoppProductThemeAPI implements ShoppAPI {
 	 * @param string       $result  The output
 	 * @param array        $options The options
 	 * - **label**: Show a label if the product is out of stock
+	 * - **mode**: `text` (text|value) Return 'Out of stock' text or boolean true or false
 	 * @param ShoppProduct $O       The working object
 	 * @return bool|string True if out-of-stock, false otherwise, or the given label
 	 **/
 	public static function out_of_stock ( $result, $options, $O ) {
-
 		if ( ! shopp_setting_enabled('inventory') ) return false;
 		if ( ! $O->outofstock ) return false;
+		
+		$defaults = array(
+			'label' => shopp_setting('outofstock_text'),// @deprecated Removing label setting
+			'mode'  => 'text',
+			);
 
-		if ( isset($options['label']) ) { // If label option is set at all, show the label instead
-			$classes = array('outofstock');
-			if ( isset($options['class']) )
-				$classes = array_merge($classes, explode(' ', $options['class']));
+		$options = array_merge($defaults, $options);
+		extract($options);
+		
+		if ( 'value' == $mode ) return true;
 
-			$label = shopp_setting('outofstock_text'); // @deprecated Removing label setting
-			if ( empty($label) ) $label = Shopp::__('Out of stock');
-			if ( ! Shopp::str_true($options['label']) ) $label = $options['label'];
-			return '<span class="' . esc_attr(join(' ', $classes)). '">' . esc_html($label) . '</span>';
+		$classes = array('outofstock');
+		if ( isset($class) )
+			$classes = array_merge($classes, explode(' ', $class));
 
-		} else return true;
+		if ( empty($label) ) $label = Shopp::__('Out of stock');
 
+		return '<span class="' . esc_attr(join(' ', $classes)). '">' . esc_html($label) . '</span>';
 	}
 
 	/**
@@ -1419,27 +1426,35 @@ class ShoppProductThemeAPI implements ShoppAPI {
 	}
 
 	/**
-	 * Provide the sale price or sale price range of the product
+	 * Provides the processing time of the product
 	 *
-	 * @api `shopp('product.saleprice')`
-	 * @since 1.0
+	 * @api `shopp('product.processing')`
+	 * @since 1.3
 	 *
 	 * @param string       $result  The output
 	 * @param array        $options The options
-	 * - **disabled**: `Currently unavailable` The label to show when the product is disabled (no valid, active prices)
-	 * - **high**: `off` (on,off) Show only the highest price of the variant price range
-	 * - **low**: `off` (on,off) Show only the lowest price of the variant price range
-	 * - **money**: `on` (on,off) Format the number with the current currency format for the store
-	 * - **number**: `off` (on,off) Provide the pure numeric value without currency formatting
-	 * - **separator**: `&mdash; ` The separator used for the price range
-	 * - **starting**: Provides a label and displays the lowest price with the label as a prefix (@example "Starting at $9.99")
-	 * - **taxes**: (on,off) Include taxes in the price or exclude taxes from the price
 	 * @param ShoppProduct $O       The working object
-	 * @return string The sale price markup
+	 * @return string|boolean The product processing time markup | False when turned off
 	 **/
-	public static function saleprice ( $result, $options, $O ) {
-		$options['property'] = 'saleprice';
-		return self::price( $result, $options, $O );
+	public static function processing ( $result, $options, $O ) {
+		if ( 'off' == $O->processing ) return false;
+
+		$period  = array( 'd' => Shopp::__('day'), 'w' => Shopp::__('week'), 'm' => Shopp::__('month'));
+		$periods = array( 'd' => Shopp::__('days'), 'w' => Shopp::__('weeks'), 'm' => Shopp::__('months'));
+
+		$minprocess = 0;
+		$maxprocess = 0;
+		$processes  = array('minprocess', 'maxprocess');
+
+		foreach ($processes as $process) {
+			$timespan = preg_split('/(?<=[0-9])(?=[a-z]+)/i', $O->$process);
+			if ( $timespan[0] == 1 )
+				$$process = $timespan[0] . ' ' . $period[ $timespan[1] ];
+			else
+				$$process = $timespan[0] . ' ' . $periods[ $timespan[1] ];
+		}
+
+		return $minprocess . ' - ' . $maxprocess;
 	}
 
 	/**
@@ -1479,7 +1494,7 @@ class ShoppProductThemeAPI implements ShoppAPI {
 	 **/
 	public static function quantity ( $result, $options, $O ) {
 		if ( ! shopp_setting_enabled('shopping_cart') ) return '';
-		if ( shopp_setting_enabled('inventory') && $O->outofstock ) return '';
+		if ( ! self::availability($result, $options, $O) ) return '';
 
 		$inputs = array('text','menu');
 		$defaults = array(
@@ -1488,7 +1503,7 @@ class ShoppProductThemeAPI implements ShoppAPI {
 			'labelpos' => 'before',
 			'label'    => '',
 			'options'  => '1-15,20,25,30,40,50,75,100',
-			'size'     => false
+			'size'     => '1'
 		);
 		$options = array_merge($defaults, $options);
 		$attributes = $options;
@@ -1572,6 +1587,30 @@ class ShoppProductThemeAPI implements ShoppAPI {
 	public static function relevance ( $result, $options, $O ) {
 		return (string) $O->score;
 	}
+
+	/**
+	 * Provide the sale price or sale price range of the product
+	 *
+	 * @api `shopp('product.saleprice')`
+	 * @since 1.0
+	 *
+	 * @param string       $result  The output
+	 * @param array        $options The options
+	 * - **disabled**: `Currently unavailable` The label to show when the product is disabled (no valid, active prices)
+	 * - **high**: `off` (on,off) Show only the highest price of the variant price range
+	 * - **low**: `off` (on,off) Show only the lowest price of the variant price range
+	 * - **money**: `on` (on,off) Format the number with the current currency format for the store
+	 * - **number**: `off` (on,off) Provide the pure numeric value without currency formatting
+	 * - **separator**: `&mdash; ` The separator used for the price range
+	 * - **starting**: Provides a label and displays the lowest price with the label as a prefix (@example "Starting at $9.99")
+	 * - **taxes**: (on,off) Include taxes in the price or exclude taxes from the price
+	 * @param ShoppProduct $O       The working object
+	 * @return string The sale price markup
+	 **/
+	public static function saleprice ( $result, $options, $O ) {
+		$options['property'] = 'saleprice';
+		return self::price( $result, $options, $O );
+	}	
 
 	/**
 	 * Provides the amount of cost savings between the regular price and the sale price
@@ -2119,7 +2158,7 @@ class ShoppProductThemeAPI implements ShoppAPI {
 			}
 		}
 
-		if ( shopp_setting_enabled('inventory') && $O->outofstock ) return false; // Completely out of stock, hide menus
+		if ( ! self::availability($result, $options, $O) ) return false; // Completely out of stock, hide menus
 		if ( ! isset($options['taxes']) ) $options['taxes'] = null;
 
 		$defaults = array(
@@ -2376,27 +2415,35 @@ new ProductOptionsMenus(<?php printf("'select%s.product%d.options'", $select_col
 
 		if ( empty($taxrates) ) $taxrates = Shopp::taxrates($O);
 
+		$inclusivetax = self::_inclusive_taxes($O);
+
 		if ( isset($taxoption) )
 			$taxoption = Shopp::str_true( $taxoption );
+		else
+			$taxoption = $inclusivetax;
 
-		$inclusivetax = self::_inclusive_taxes($O);
-		if ( $inclusivetax ) {
-			$adjustment = ShoppTax::adjustment($taxrates);
-			if ( 1 != $adjustment && false !== $taxoption ) // Only adjust when taxes are not excluded @see #3041
-				return (float) ($amount / $adjustment);
-		}
+		$adjustment = ShoppTax::adjustment($taxrates, $O);
+		extract($adjustment);
+
+		if ( $baserate == $appliedrate && 0 == $baserate ) return $amount;
 
 		// Handle inclusive/exclusive tax presentation options (product editor setting or api option)
 		// If the 'taxes' option is specified and the item either has inclusive taxes that apply,
 		// or the 'taxes' option is forced on (but not both) then handle taxes by either adding or excluding taxes
 		// This is an exclusive or known as XOR, the lesser known brother of Thor that gets left out of the family get togethers
-		if ( isset($taxoption) && ( $inclusivetax ^ $taxoption ) ) {
-
+		if ( $inclusivetax ) {
+			if ( $taxoption ) {
+				if ( $baserate == $appliedrate ) return $amount;
+				//return (float)($amount * ( 1 / ( 1 + $baserate ) ) ) * ( 1 + $appliedrate );
+				return (float)($amount / ( 1 + $baserate ) ) * ( 1 + $appliedrate );
+			} else {
+				//return (float)$amount * ( 1 / ( 1 + $baserate ) );
+				return (float)$amount / ( 1 + $baserate );
+			}
+		} else {
 			if ( $taxoption )
-				return ShoppTax::calculate($taxrates, (float)$amount);
-			else return ShoppTax::exclusive($taxrates, (float)$amount);
-
-		}
+				return (float)$amount * ( 1 + $appliedrate );
+		}		
 
 		return $amount;
 	}
